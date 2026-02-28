@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply min-h-screen antialiased;
+  background: linear-gradient(160deg, #fdfcfb 0%, #f9f7f4 50%, #f5f3ef 100%);
+  color: #44403c;
+}
