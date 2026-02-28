@@ -148,7 +148,3 @@ RAG_Studio/
 - **First upload** can take 1–2 minutes while the embedding model loads; the frontend uses a long timeout for the first request.
 - **CORS:** Backend allows all origins; tighten for production.
 - **Windows:** Run the backend with `.\venv\Scripts\python.exe run.py` so the correct venv (with faiss/sentence_transformers) is used. Avoid `--reload` if the reloader uses a different Python.
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for terms.
