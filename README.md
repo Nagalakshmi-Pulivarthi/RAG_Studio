@@ -151,4 +151,4 @@ RAG_Studio/
 
 ## License
 
-Use and modify as needed for your project.
+MIT License. See [LICENSE](LICENSE) for terms.
