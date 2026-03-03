@@ -21,6 +21,22 @@ A full-stack **Retrieval-Augmented Generation (RAG)** application that lets you 
 - **Index status panel** — the Ingest tab always shows what is currently indexed, even after switching tabs
 - **Clear index** to reset and start fresh
 
+## Why Agentic RAG
+
+Traditional RAG is a fixed, one-shot pipeline: embed the question → search once → stuff chunks into a prompt → get an answer. There is no decision-making, no retry, and no memory.
+
+This project uses **Agentic RAG**, where the LLM drives the retrieval loop:
+
+| Problem with Traditional RAG | How Agentic RAG solves it here |
+|-------------------------------|-------------------------------|
+| First search returns irrelevant chunks → bad answer | Agent rephrases the query and searches again |
+| Multi-part question needs multiple searches | Agent calls `search_documents` as many times as needed |
+| No context between questions | Agent has session memory (last 5 turns per browser tab) |
+| No visibility into what the model is doing | Agent emits live SSE events per tool call — shown in the UI |
+| LLM supplements retrieved content with training knowledge | Agent is strictly instructed to answer only from retrieved chunks |
+
+The agent has one tool — `search_documents` — and must call it before answering any factual question. This forces grounding and makes the system far more robust than a static prompt-stuffing approach.
+
 ## Architecture
 
 | Layer | Stack |
