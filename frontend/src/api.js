@@ -15,6 +15,10 @@ export async function checkDeps() {
   return request('/api/check-deps');
 }
 
+export async function getIndexStatus() {
+  return request('/api/index-status');
+}
+
 export async function ingestText(text) {
   return request('/api/ingest', {
     method: 'POST',
@@ -71,9 +75,39 @@ export async function ingestUpload(file) {
   return data;
 }
 
-export async function chat(message) {
+export async function chat(message, sessionId) {
   return request('/api/chat', {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, session_id: sessionId ?? null }),
   });
+}
+
+// Streams agent events from /api/chat/stream.
+// onEvent is called for each SSE event object as it arrives.
+export async function chatStream(message, sessionId, onEvent) {
+  const url = `${API_BASE.replace(/\/$/, '')}/api/chat/stream`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId ?? null }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || res.statusText || 'Request failed');
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // hold the last incomplete line
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try { onEvent(JSON.parse(line.slice(6))); } catch { /* skip malformed */ }
+      }
+    }
+  }
 }

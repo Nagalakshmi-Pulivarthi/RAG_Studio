@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ingestText, ingestFile, ingestUpload, ingestUrl, clearIndex } from '../api';
+import { useState, useEffect, useCallback } from 'react';
+import { ingestText, ingestFile, ingestUpload, ingestUrl, clearIndex, getIndexStatus } from '../api';
 
 export default function Ingest() {
   const [text, setText] = useState('');
@@ -10,6 +10,16 @@ export default function Ingest() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [clearSuccess, setClearSuccess] = useState(false);
+  const [indexStatus, setIndexStatus] = useState(null);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      const s = await getIndexStatus();
+      setIndexStatus(s);
+    } catch { /* silently ignore — index may not exist yet */ }
+  }, []);
+
+  useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
   async function handleIngestText(e) {
     e.preventDefault();
@@ -21,6 +31,7 @@ export default function Ingest() {
       const data = await ingestText(text.trim());
       setResult(data);
       setText('');
+      refreshStatus();
     } catch (err) {
       setError(err.message || 'Ingest failed');
     } finally {
@@ -39,6 +50,7 @@ export default function Ingest() {
       const data = await ingestFile(path);
       setResult(data);
       setFilePath('');
+      refreshStatus();
     } catch (err) {
       setError(err.message || 'Ingest failed');
     } finally {
@@ -55,6 +67,7 @@ export default function Ingest() {
     try {
       await clearIndex();
       setClearSuccess(true);
+      refreshStatus();
     } catch (err) {
       setError(err.message || 'Clear failed');
     } finally {
@@ -75,6 +88,7 @@ export default function Ingest() {
       if (e.target && e.target.reset) {
         e.target.reset();
       }
+      refreshStatus();
     } catch (err) {
       setError(err.message || 'Ingest failed');
     } finally {
@@ -93,6 +107,7 @@ export default function Ingest() {
       const data = await ingestUrl(url);
       setResult(data);
       setIngestUrlValue('');
+      refreshStatus();
     } catch (err) {
       setError(err.message || 'URL ingest failed');
     } finally {
@@ -102,6 +117,30 @@ export default function Ingest() {
 
   return (
     <div className="space-y-8">
+
+      {/* Currently Indexed panel — always visible, loaded from backend */}
+      <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
+        <h2 className="text-xl font-semibold text-stone-700 mb-1">Currently indexed</h2>
+        <p className="text-sm text-stone-500 mb-4">Documents that are currently in the RAG index and available for chat.</p>
+        {indexStatus === null ? (
+          <p className="text-sm text-stone-400">Loading…</p>
+        ) : indexStatus.total_chunks === 0 ? (
+          <p className="text-sm text-stone-400 italic">No documents indexed yet. Upload or paste content below.</p>
+        ) : (
+          <>
+            <ul className="space-y-2 mb-3">
+              {indexStatus.sources.map((s, i) => (
+                <li key={i} className="flex items-center justify-between rounded-xl border border-stone-200/80 bg-stone-50 px-4 py-2.5 text-sm">
+                  <span className="font-medium text-stone-700">{s.source}</span>
+                  <span className="text-stone-400 text-xs">{s.chunks} chunk{s.chunks !== 1 ? 's' : ''}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-stone-400">{indexStatus.total_chunks} total chunks across {indexStatus.sources.length} source{indexStatus.sources.length !== 1 ? 's' : ''}</p>
+          </>
+        )}
+      </div>
+
       <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
         <h2 className="text-xl font-semibold text-stone-700 mb-1">Clear index</h2>
         <p className="text-sm text-stone-500 mb-4">Remove all ingested content so the next ingest (pasted text or upload) is the only source. Use this if you want answers based only on new pasted/uploaded content.</p>

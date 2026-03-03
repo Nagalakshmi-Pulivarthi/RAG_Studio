@@ -50,3 +50,6 @@ Thumbs.db
 
 # Optional: Chroma if you ever add it
 backend/chroma_db/
+
+# Personal dev notes
+notes_additions.txt

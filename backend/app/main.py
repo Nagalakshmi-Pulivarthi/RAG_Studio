@@ -1,6 +1,10 @@
+import json
+import queue
+import threading
+
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from pathlib import Path
 from io import BytesIO
@@ -56,14 +60,128 @@ class IngestUrlBody(BaseModel):
 
 class ChatBody(BaseModel):
     message: str
+    session_id: str | None = None
+
+
+def _is_numeric_cell(s: str) -> bool:
+    """Return True if s looks like a number or quantity (e.g. 680, 43g, 860mg, 2%)."""
+    import re
+    return bool(re.match(r"^[\d,]+\.?\d*\s*(g|mg|cal|kcal|%|oz|ml|lb|mcg|iu)?$", s.strip(), re.IGNORECASE))
+
+
+def _looks_like_header(row: list[str]) -> bool:
+    """Return True when a row is mostly text labels rather than numbers — i.e. a header row."""
+    non_empty = [c for c in row if c]
+    if not non_empty:
+        return False
+    numeric_count = sum(1 for c in non_empty if _is_numeric_cell(c))
+    return numeric_count / len(non_empty) < 0.4
+
+
+def _table_to_sentences(table: list[list]) -> list[str]:
+    """
+    Convert a pdfplumber table (list of rows) into natural-language sentences so that
+    the embedding model can link item names to their values.
+
+    Input:  [["Item", "Calories", "Fat"], ["Chuck Wagon (Plain)", "680", "43g"], ...]
+    Output: ["Chuck Wagon (Plain): 680 Calories, 43g Fat."]
+    """
+    if not table:
+        return []
+
+    # Normalise cells to stripped strings
+    cleaned = [[str(c or "").strip() for c in row] for row in table]
+
+    # Detect header
+    if len(cleaned) >= 2 and _looks_like_header(cleaned[0]):
+        headers = cleaned[0]
+        data_rows = cleaned[1:]
+    else:
+        headers = []
+        data_rows = cleaned
+
+    sentences: list[str] = []
+    for row in data_rows:
+        non_empty = [c for c in row if c]
+        if not non_empty:
+            continue
+
+        if headers and row and row[0]:
+            item_name = row[0]
+            pairs = []
+            for i in range(1, len(row)):
+                val = row[i] if i < len(row) else ""
+                col = headers[i] if i < len(headers) else ""
+                if val and col:
+                    pairs.append(f"{val} {col}")
+                elif val:
+                    pairs.append(val)
+            if pairs:
+                sentences.append(f"{item_name}: {', '.join(pairs)}.")
+            else:
+                sentences.append(item_name)
+        else:
+            sentences.append(" | ".join(non_empty))
+
+    return sentences
 
 
 def _extract_pdf_text(data: bytes) -> str:
-    """Extract text from a PDF byte stream."""
-    from pypdf import PdfReader
+    """
+    Extract text from a PDF byte stream.
 
+    Uses pdfplumber for table-aware extraction: each table row is converted to a
+    natural-language sentence so the embedding model can match queries to specific
+    items (e.g. 'Chuck Wagon (Plain): 680 Calories, 43g Fat, 860mg Sodium.').
+    Non-table text is extracted separately to avoid duplication.
+    Falls back to pypdf if pdfplumber is unavailable or fails.
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        pdfplumber = None  # type: ignore
+
+    if pdfplumber is not None:
+        try:
+            parts: list[str] = []
+            with pdfplumber.open(BytesIO(data)) as pdf:
+                for page in pdf.pages:
+                    tbl_objects = page.find_tables()
+
+                    if tbl_objects:
+                        # Convert each table to natural language sentences
+                        table_bboxes = []
+                        for tbl_obj in tbl_objects:
+                            table_bboxes.append(tbl_obj.bbox)
+                            raw_table = tbl_obj.extract()
+                            for sentence in _table_to_sentences(raw_table):
+                                parts.append(sentence)
+
+                        # Extract text that falls outside every table bounding box
+                        words = page.extract_words()
+                        outside = [
+                            w["text"] for w in words
+                            if not any(
+                                w["x0"] >= bbox[0] and w["top"] >= bbox[1]
+                                and w["x1"] <= bbox[2] and w["bottom"] <= bbox[3]
+                                for bbox in table_bboxes
+                            )
+                        ]
+                        if outside:
+                            parts.append(" ".join(outside))
+                    else:
+                        txt = page.extract_text() or ""
+                        if txt.strip():
+                            parts.append(txt)
+
+            return "\n\n".join(p for p in parts if p.strip())
+        except Exception:
+            pass  # fall through to pypdf fallback
+
+    # pypdf fallback
+    from pypdf import PdfReader
     reader = PdfReader(BytesIO(data))
-    parts: list[str] = []
+    parts = []
     for page in reader.pages:
         txt = page.extract_text() or ""
         if txt:
@@ -119,8 +237,24 @@ def api_info():
             "POST /api/clear-index",
             "POST /api/chat",
             "GET /api/check-deps",
+            "GET /api/index-status",
         ],
     }
+
+
+@app.get("/api/index-status")
+def api_index_status():
+    """Return the unique sources and total chunk count currently in the index."""
+    from app.ingest import get_index_and_docstore
+    from collections import Counter
+
+    _, docstore = get_index_and_docstore()
+    if not docstore:
+        return {"total_chunks": 0, "sources": []}
+
+    counts = Counter(doc.get("source", "unknown") for doc in docstore)
+    sources = [{"source": s, "chunks": c} for s, c in counts.items()]
+    return {"total_chunks": len(docstore), "sources": sources}
 
 
 @app.get("/api/check-deps")
@@ -280,12 +414,12 @@ def api_clear_index():
 
 @app.post("/api/chat")
 def api_chat(body: ChatBody):
-    """Answer using retrieved context and the LLM."""
+    """Answer using the Agno agent (search_documents tool + Claude)."""
     try:
-        from app.llm import chat
-        from app.retrieve import retrieve
+        from app.agent import get_agent
+        from app import tools as _tools
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Could not load chat module: {e!s}")
+        raise HTTPException(status_code=503, detail=f"Could not load agent module: {e!s}")
 
     if not ANTHROPIC_API_KEY:
         raise HTTPException(
@@ -296,15 +430,71 @@ def api_chat(body: ChatBody):
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
     try:
-        chunks = retrieve(message, top_k=5)
-        answer = chat(message, chunks)
-        return {
-            "answer": answer,
-            "sources": [{"source": c["source"], "text": c["text"][:200]} for c in chunks],
-        }
+        agent = get_agent()
+        run_kwargs = {"session_id": body.session_id} if body.session_id else {}
+        response = agent.run(message, **run_kwargs)
+        answer = response.content or ""
+        sources = [{"source": c["source"], "text": c["text"][:200]} for c in _tools._last_chunks]
+        return {"answer": answer, "sources": sources}
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Chat failed: {e!s}")
+
+
+@app.post("/api/chat/stream")
+def api_chat_stream(body: ChatBody):
+    """Stream agent events as SSE: tool_call → tool_done → answer."""
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY is not set.")
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    try:
+        from app.agent import get_agent
+        from app import tools as _tools
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Could not load agent module: {e!s}")
+
+    event_queue: queue.Queue = queue.Queue()
+
+    session_id = body.session_id
+
+    def run_agent():
+        _tools._event_queue = event_queue
+        try:
+            agent = get_agent()
+            run_kwargs = {"session_id": session_id} if session_id else {}
+            response = agent.run(message, **run_kwargs)
+            sources = [{"source": c["source"], "text": c["text"][:200]} for c in _tools._last_chunks]
+            event_queue.put({"type": "answer", "content": response.content or "", "sources": sources})
+        except Exception as exc:
+            event_queue.put({"type": "error", "message": str(exc)})
+        finally:
+            _tools._event_queue = None
+            event_queue.put(None)  # sentinel — signals generator to stop
+
+    def generate():
+        thread = threading.Thread(target=run_agent, daemon=True)
+        thread.start()
+        try:
+            while True:
+                try:
+                    event = event_queue.get(timeout=120)
+                except queue.Empty:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'Agent timed out'})}\n\n"
+                    break
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            thread.join(timeout=5)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
