@@ -11,6 +11,7 @@ export default function Ingest() {
   const [error, setError] = useState(null);
   const [clearSuccess, setClearSuccess] = useState(false);
   const [indexStatus, setIndexStatus] = useState(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -118,10 +119,10 @@ export default function Ingest() {
   return (
     <div className="space-y-8">
 
-      {/* Currently Indexed panel — always visible, loaded from backend */}
+      {/* Index status + Clear index — combined in one section */}
       <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-stone-700 mb-1">Currently indexed</h2>
-        <p className="text-sm text-stone-500 mb-4">Documents that are currently in the RAG index and available for chat.</p>
+        <h2 className="text-xl font-semibold text-stone-700 mb-1">Index status</h2>
+        <p className="text-sm text-stone-500 mb-4">Documents in the RAG index, available for chat. Remove all content with Clear index if you want answers based only on new uploads or pasted text.</p>
         {indexStatus === null ? (
           <p className="text-sm text-stone-400">Loading…</p>
         ) : indexStatus.total_chunks === 0 ? (
@@ -136,15 +137,10 @@ export default function Ingest() {
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-stone-400">{indexStatus.total_chunks} total chunks across {indexStatus.sources.length} source{indexStatus.sources.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-stone-400 mb-4">{indexStatus.total_chunks} total chunks across {indexStatus.sources.length} source{indexStatus.sources.length !== 1 ? 's' : ''}</p>
           </>
         )}
-      </div>
-
-      <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-stone-700 mb-1">Clear index</h2>
-        <p className="text-sm text-stone-500 mb-4">Remove all ingested content so the next ingest (pasted text or upload) is the only source. Use this if you want answers based only on new pasted/uploaded content.</p>
-        <form onSubmit={handleClearIndex} className="flex items-center gap-3">
+        <form onSubmit={handleClearIndex} className="flex items-center gap-3 pt-2 border-t border-stone-200/80">
           <button
             type="submit"
             disabled={loading}
@@ -158,98 +154,104 @@ export default function Ingest() {
         </form>
       </div>
 
+      {/* Add content — Upload, URL, Paste merged into one card */}
       <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-stone-700 mb-1">Upload PDF, Word, or HTML</h2>
-        <p className="text-sm text-stone-500 mb-4">
-          Upload a document as PDF, Word (.docx), or HTML. Text will be extracted and added to the RAG index.
-        </p>
-        <p className="text-sm text-stone-500 mb-2">First upload may take 1–2 minutes while the model loads; please wait.</p>
-        <form onSubmit={handleUploadFile} className="flex flex-wrap items-end gap-3">
-          <input
-            type="file"
-            accept=".pdf,.docx,.html,.htm"
-            onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-            className="text-sm text-stone-700"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || !uploadFile}
-            className="rounded-xl bg-sage-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sage-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-          >
-            {loading ? 'Ingesting…' : 'Upload & ingest'}
-          </button>
-        </form>
-      </div>
+        <h2 className="text-xl font-semibold text-stone-700 mb-1">Add content</h2>
+        <p className="text-sm text-stone-500 mb-5">Upload a file, fetch a URL, or paste text. First upload may take 1–2 minutes while the model loads.</p>
 
-      <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-stone-700 mb-1">Ingest from URL</h2>
-        <p className="text-sm text-stone-500 mb-4">Enter a web page URL. The page will be fetched and its text extracted and added to the RAG index.</p>
-        <form onSubmit={handleIngestUrl} className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[200px]">
+        <div className="space-y-5">
+          <form onSubmit={handleUploadFile} className="flex flex-wrap items-end gap-3">
+            <label className="text-sm font-medium text-stone-600 shrink-0 w-20">Upload</label>
+            <input
+              type="file"
+              accept=".pdf,.docx,.html,.htm"
+              onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+              className="text-sm text-stone-700"
+              disabled={loading}
+            />
+            <button
+              type="submit"
+              disabled={loading || !uploadFile}
+              className="rounded-xl bg-sage-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sage-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            >
+              {loading ? 'Ingesting…' : 'Upload & ingest'}
+            </button>
+          </form>
+
+          <form onSubmit={handleIngestUrl} className="flex flex-wrap items-end gap-3">
+            <label className="text-sm font-medium text-stone-600 shrink-0 w-20">URL</label>
             <input
               type="url"
               value={ingestUrlValue}
               onChange={(e) => setIngestUrlValue(e.target.value)}
-              placeholder="https://example.com/docs/page.html"
-              className="w-full rounded-xl border border-stone-200 bg-cream-50/50 px-4 py-2.5 text-stone-700 placeholder-stone-400 focus:border-sage-500 focus:outline-none focus:ring-2 focus:ring-sage-500/20 transition-shadow"
+              placeholder="https://example.com/page.html"
+              className="flex-1 min-w-[180px] rounded-xl border border-stone-200 bg-cream-50/50 px-4 py-2.5 text-sm text-stone-700 placeholder-stone-400 focus:border-sage-500 focus:outline-none focus:ring-2 focus:ring-sage-500/20"
               disabled={loading}
             />
-          </div>
-          <button
-            type="submit"
-            disabled={loading || !ingestUrlValue.trim()}
-            className="rounded-xl bg-sage-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sage-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-          >
-            {loading ? 'Ingesting…' : 'Ingest URL'}
-          </button>
-        </form>
-      </div>
+            <button
+              type="submit"
+              disabled={loading || !ingestUrlValue.trim()}
+              className="rounded-xl bg-sage-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sage-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            >
+              {loading ? 'Ingesting…' : 'Ingest URL'}
+            </button>
+          </form>
 
-      <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-stone-700 mb-1">Ingest text</h2>
-        <p className="text-sm text-stone-500 mb-4">Paste document content to add it to the RAG index. This adds to any content already in the index (e.g. from data folder or uploads). To use only pasted content, clear the index first, then paste and ingest.</p>
-        <form onSubmit={handleIngestText} className="space-y-3">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Paste your text here..."
-            rows={6}
-            className="w-full rounded-xl border border-stone-200 bg-cream-50/50 px-4 py-3 text-stone-700 placeholder-stone-400 focus:border-sage-500 focus:outline-none focus:ring-2 focus:ring-sage-500/20 transition-shadow"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || !text.trim()}
-            className="rounded-xl bg-sage-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sage-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-          >
-            {loading ? 'Ingesting…' : 'Ingest text'}
-          </button>
-        </form>
-      </div>
-
-      <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm p-6">
-        <h2 className="text-xl font-semibold text-stone-700 mb-1">Ingest from file path</h2>
-        <p className="text-sm text-stone-500 mb-4">Enter a full path to a text or XML file on the server (e.g. data/filings/AAPL_Annual2024.xml).</p>
-        <form onSubmit={handleIngestFile} className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[200px]">
-            <input
-              type="text"
-              value={filePath}
-              onChange={(e) => setFilePath(e.target.value)}
-              placeholder="C:\...\data\filings\AAPL_Annual2024.xml"
-              className="w-full rounded-xl border border-stone-200 bg-cream-50/50 px-4 py-2.5 text-stone-700 placeholder-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-200 transition-shadow"
+          <form onSubmit={handleIngestText} className="space-y-2">
+            <label className="text-sm font-medium text-stone-600 block">Paste text</label>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Paste your text here..."
+              rows={4}
+              className="w-full rounded-xl border border-stone-200 bg-cream-50/50 px-4 py-3 text-sm text-stone-700 placeholder-stone-400 focus:border-sage-500 focus:outline-none focus:ring-2 focus:ring-sage-500/20"
               disabled={loading}
             />
+            <button
+              type="submit"
+              disabled={loading || !text.trim()}
+              className="rounded-xl bg-sage-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-sage-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            >
+              {loading ? 'Ingesting…' : 'Ingest text'}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Advanced — server file path (collapsible) */}
+      <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-stone-200/80 shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-stone-50/80 transition-colors"
+        >
+          <span className="text-sm font-medium text-stone-600">Advanced</span>
+          <span className="text-stone-400">{showAdvanced ? '▼' : '▶'}</span>
+        </button>
+        {showAdvanced && (
+          <div className="px-6 pb-6 pt-0 border-t border-stone-200/80">
+            <p className="text-sm text-stone-500 mb-3">Ingest from a full path to a text or XML file on the server.</p>
+            <form onSubmit={handleIngestFile} className="flex flex-wrap items-end gap-3">
+              <div className="flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  value={filePath}
+                  onChange={(e) => setFilePath(e.target.value)}
+                  placeholder="C:\...\data\filings\file.xml"
+                  className="w-full rounded-xl border border-stone-200 bg-cream-50/50 px-4 py-2.5 text-sm text-stone-700 placeholder-stone-400 focus:border-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-200"
+                  disabled={loading}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loading || !filePath.trim()}
+                className="rounded-xl bg-stone-400 px-5 py-2.5 text-sm font-medium text-white hover:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+              >
+                {loading ? 'Ingesting…' : 'Ingest file'}
+              </button>
+            </form>
           </div>
-          <button
-            type="submit"
-            disabled={loading || !filePath.trim()}
-            className="rounded-xl bg-stone-400 px-5 py-2.5 text-sm font-medium text-white hover:bg-stone-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-          >
-            {loading ? 'Ingesting…' : 'Ingest file'}
-          </button>
-        </form>
+        )}
       </div>
 
       {error && (

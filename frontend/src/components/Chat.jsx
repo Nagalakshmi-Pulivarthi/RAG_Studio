@@ -87,10 +87,10 @@ export default function Chat() {
   const isEmpty = history.length === 0 && !loading;
 
   return (
-    <div className="flex flex-col" style={{ minHeight: 'calc(100vh - 120px)' }}>
+    <div className="flex flex-col flex-1 min-h-0 p-4">
 
-      {/* ── Conversation area ── */}
-      <div className="flex-1 space-y-6 pb-4">
+      {/* ── Conversation area (scrollable) ── */}
+      <div className="flex-1 overflow-y-auto space-y-6 pb-4 min-h-0">
 
         {/* Empty state */}
         {isEmpty && (
